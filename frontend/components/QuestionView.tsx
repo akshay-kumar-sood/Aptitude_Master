@@ -418,7 +418,7 @@ const QuestionView: React.FC = () => {
                                 Next Question
                             </button>
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
