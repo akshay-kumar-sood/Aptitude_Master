@@ -236,11 +236,18 @@ app.post('/api/user/sync', async (req, res) => {
 // --- Serve Frontend (Production) ---
 const path = require('path');
 // Serve static files from the React app
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+const frontendPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendPath));
 
 // The "catchall" handler: for any request that doesn't match one above, send back React's index.html file.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  const indexFile = path.join(frontendPath, 'index.html');
+  const fs = require('fs');
+  if (fs.existsSync(indexFile)) {
+    res.sendFile(indexFile);
+  } else {
+    res.status(404).send('Frontend not built or index.html missing. Please run "npm run build" in the frontend directory.');
+  }
 });
 
 // Start Server
