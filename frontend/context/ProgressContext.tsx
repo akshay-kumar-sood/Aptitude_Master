@@ -52,7 +52,7 @@ const initialProgress: UserProgress = {
 interface ProgressContextType {
   progress: UserProgress;
   streak: number;
-  submitAnswer: (question: Question, selectedOption: string, usedHint: boolean) => void;
+  submitAnswer: (question: Question, selectedOption: string, usedHint: boolean, isRetry?: boolean) => void;
   resetProgress: () => void;
   buyItem: (itemId: string, cost: number) => boolean;
   updateProfile: (name: string, image: string | null, bio: string, links: { linkedin: string; instagram: string; github: string }) => void;
@@ -215,13 +215,41 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [progress.activityByDate, progress.maxStreak]);
 
 
-  const submitAnswer = (question: Question, selectedOption: string, usedHint: boolean) => {
-    if (progress.solvedQuestions[question.id]) return;
+  const submitAnswer = (question: Question, selectedOption: string, usedHint: boolean, isRetry: boolean = false) => {
+    const existingAttempt = progress.solvedQuestions[question.id];
+    
+    // If question is already correctly answered, don't allow re-attempt
+    if (existingAttempt && existingAttempt.correct && !isRetry) {
+      return;
+    }
 
     const isCorrect = selectedOption === question.answer;
     const today = new Date().toLocaleDateString('en-CA');
 
     setProgress((prev) => {
+      const previousAttempt = prev.solvedQuestions[question.id];
+      const wasPreviouslyIncorrect = previousAttempt && !previousAttempt.correct;
+      
+      // If retrying an incorrect answer, we need to adjust the counts
+      let totalSolvedChange = 0;
+      let easySolvedChange = 0;
+      let mediumSolvedChange = 0;
+      let hardSolvedChange = 0;
+      
+      if (!previousAttempt) {
+        // First attempt
+        totalSolvedChange = 1;
+        easySolvedChange = question.level === 'easy' ? 1 : 0;
+        mediumSolvedChange = question.level === 'medium' ? 1 : 0;
+        hardSolvedChange = question.level === 'hard' ? 1 : 0;
+      } else if (wasPreviouslyIncorrect && isCorrect) {
+        // Retrying and now correct - don't increment solved counts again, but update the status
+        totalSolvedChange = 0;
+        easySolvedChange = 0;
+        mediumSolvedChange = 0;
+        hardSolvedChange = 0;
+      }
+
       const newSolvedQuestions = {
         ...prev.solvedQuestions,
         [question.id]: {
@@ -233,23 +261,39 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       const newActivityByDate = { ...prev.activityByDate };
-      newActivityByDate[today] = (newActivityByDate[today] || 0) + 1;
+      // Only increment activity if this is a new attempt (not a retry of the same day)
+      if (!previousAttempt || previousAttempt.date !== today) {
+        newActivityByDate[today] = (newActivityByDate[today] || 0) + 1;
+      }
 
       let pointsChange = 0;
       if (isCorrect) {
-        pointsChange = usedHint ? 0 : 4;
+        // If previously incorrect, we need to adjust points
+        if (wasPreviouslyIncorrect) {
+          // Remove the -1 penalty from previous incorrect attempt (add 1 back)
+          pointsChange = 1;
+          // Add points for correct answer
+          pointsChange += usedHint ? 0 : 4;
+        } else {
+          // First time correct
+          pointsChange = usedHint ? 0 : 4;
+        }
       } else {
-        pointsChange = -1;
+        // Only deduct points on first incorrect attempt
+        if (!previousAttempt) {
+          pointsChange = -1;
+        }
+        // If retrying and still incorrect, don't deduct again
       }
 
       const newPoints = Math.max(0, prev.points + pointsChange);
 
       return {
         ...prev,
-        totalSolved: prev.totalSolved + 1,
-        easySolved: prev.easySolved + (question.level === 'easy' ? 1 : 0),
-        mediumSolved: prev.mediumSolved + (question.level === 'medium' ? 1 : 0),
-        hardSolved: prev.hardSolved + (question.level === 'hard' ? 1 : 0),
+        totalSolved: prev.totalSolved + totalSolvedChange,
+        easySolved: prev.easySolved + easySolvedChange,
+        mediumSolved: prev.mediumSolved + mediumSolvedChange,
+        hardSolved: prev.hardSolved + hardSolvedChange,
         points: newPoints,
         solvedQuestions: newSolvedQuestions,
         activityByDate: newActivityByDate
