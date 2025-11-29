@@ -73,7 +73,7 @@ const QuestionView: React.FC = () => {
       setShowExplanation(attempt.correct); 
       setGivenUp(false);
       setHintIndex(attempt.usedHint ? 2 : 0);
-    } else {
+    } else if (!isRetrying) {
       setSelectedOption(null);
       setShowExplanation(false);
       setGivenUp(false);
@@ -81,7 +81,18 @@ const QuestionView: React.FC = () => {
       setRemainingTime(INITIAL_TIMER);
       setIsRunning(false);
     }
-  }, [questionId, question?.id, progress.solvedQuestions, isRetrying]);
+  }, [questionId, question?.id, progress.solvedQuestions]);
+  
+  // Separate effect to update state when answer is submitted
+  useEffect(() => {
+    const currentQuestionId = question?.id ?? questionId;
+    const attempt = progress.solvedQuestions[currentQuestionId];
+    
+    if (attempt && !isRetrying) {
+      setSelectedOption(attempt.attemptedOption);
+      setShowExplanation(attempt.correct);
+    }
+  }, [progress.solvedQuestions, questionId, question?.id, isRetrying]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -202,7 +213,29 @@ const QuestionView: React.FC = () => {
   };
 
   const getOptionStyle = (key: string) => {
-    // During retry, allow normal selection
+    // If question is correctly answered and not retrying, show final state
+    if (isCorrectlyAnswered && !isRetrying) {
+      // Show correct answer in green
+      if (key === question.answer) {
+        return "border-green-500 bg-green-50 ring-1 ring-green-500"; 
+      }
+      return "border-gray-200 opacity-60";
+    }
+
+    // If question is incorrectly answered and not retrying, show wrong answer in red
+    if (isIncorrectlyAnswered && !isRetrying && !givenUp) {
+      // Show correct answer in green
+      if (key === question.answer) {
+        return "border-green-500 bg-green-50 ring-1 ring-green-500"; 
+      }
+      // Show incorrect selected answer in red
+      if (selectedOption === key && key !== question.answer) {
+        return "border-red-500 bg-red-50 ring-1 ring-red-500"; 
+      }
+      return "border-gray-200 opacity-60";
+    }
+
+    // During retry or not answered yet, allow normal selection
     const canSelect = !isCorrectlyAnswered || isRetrying;
     
     if ((canSelect && !givenUp) || isRetrying) {
@@ -211,14 +244,7 @@ const QuestionView: React.FC = () => {
         : "border-gray-200 hover:border-gray-300 hover:bg-gray-50";
     }
 
-    // Show correct answer in green
-    if (key === question.answer) {
-      return "border-green-500 bg-green-50 ring-1 ring-green-500"; 
-    }
-    // Show incorrect selected answer in red (only if not retrying)
-    if (selectedOption === key && key !== question.answer && !givenUp && !isRetrying) {
-      return "border-red-500 bg-red-50 ring-1 ring-red-500"; 
-    }
+    // Default state
     return "border-gray-200 opacity-60";
   };
 
@@ -376,17 +402,49 @@ const QuestionView: React.FC = () => {
                         </button>
                     )}
                     
-                    {/* Show retry button for incorrect answers */}
-                    {isIncorrectlyAnswered && !isRetrying && (
-                        <button
-                            onClick={handleRetry}
-                            className="px-6 py-2.5 font-medium rounded-lg shadow-sm transition-colors bg-orange-600 text-white hover:bg-orange-700"
-                        >
-                            Retry Question
-                        </button>
-                    )}
-                    
-                    {((!isCorrectlyAnswered || isRetrying) && !givenUp) ? (
+                    {/* Show buttons based on answer status */}
+                    {isCorrectlyAnswered && !isRetrying ? (
+                        <div className="flex gap-3">
+                            {!showExplanation && (
+                                <button
+                                    onClick={() => setShowExplanation(true)}
+                                    className="px-4 py-2.5 text-blue-600 font-medium bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2"
+                                >
+                                    <Eye className="h-4 w-4" /> View Solution
+                                </button>
+                            )}
+                            <button
+                                onClick={() => {
+                                    if (nextQuestionId) {
+                                        navigate(`/question/${nextQuestionId}`);
+                                    }
+                                }}
+                                disabled={!nextQuestionId}
+                                className={`px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm ${
+                                    !nextQuestionId ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                            >
+                                Next Question
+                            </button>
+                        </div>
+                    ) : isIncorrectlyAnswered && !isRetrying ? (
+                        <div className="flex gap-3">
+                            <button
+                                onClick={handleRetry}
+                                className="px-6 py-2.5 font-medium rounded-lg shadow-sm transition-colors bg-orange-600 text-white hover:bg-orange-700"
+                            >
+                                Retry Question
+                            </button>
+                            {!showExplanation && (
+                                <button
+                                    onClick={() => setShowExplanation(true)}
+                                    className="px-4 py-2.5 text-blue-600 font-medium bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2"
+                                >
+                                    <Eye className="h-4 w-4" /> View Solution
+                                </button>
+                            )}
+                        </div>
+                    ) : ((!isCorrectlyAnswered || isRetrying) && !givenUp) ? (
                         <button
                             onClick={handleSubmit}
                             disabled={!selectedOption}
@@ -401,23 +459,6 @@ const QuestionView: React.FC = () => {
                              <span className="flex items-center gap-2"><Lock className="h-3 w-3" /> Login to Submit</span>
                           ) : isRetrying ? "Submit Retry" : "Submit Answer"}
                         </button>
-                    ) : isCorrectlyAnswered ? (
-                        <div className="flex gap-3">
-                            {!showExplanation && isCorrectlyAnswered && (
-                                <button
-                                    onClick={() => setShowExplanation(true)}
-                                    className="px-4 py-2.5 text-blue-600 font-medium bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors text-sm flex items-center gap-2"
-                                >
-                                    <Eye className="h-4 w-4" /> View Solution
-                                </button>
-                            )}
-                            <button
-                                onClick={() => nextQuestionId && navigate(`/question/${nextQuestionId}`)}
-                                className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                            >
-                                Next Question
-                            </button>
-                        </div>
                     ) : null}
                 </div>
             </div>
