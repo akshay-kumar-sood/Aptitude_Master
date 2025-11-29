@@ -18,10 +18,26 @@ const QuestionView: React.FC = () => {
   const { progress, submitAnswer } = useProgress();
   const { isAuthenticated } = useAuth();
   
+  // Parse and validate question ID from URL
   const questionId = parseInt(id || '0', 10);
+  
+  // Find the question - use strict equality and ensure we get the exact match
   const question = questions.find(q => q.id === questionId);
-  const nextQuestionId = questions.find(q => q.id > questionId)?.id;
-  const prevQuestionId = questions.find(q => q.id < questionId)?.id;
+  
+  // If question not found, try to find by index as fallback (shouldn't happen, but defensive)
+  if (!question && questionId > 0 && questionId <= questions.length) {
+    console.warn(`Question with ID ${questionId} not found, but ID is within valid range`);
+  }
+  
+  // Find next and previous questions by sorting all questions by ID first
+  const sortedQuestions = [...questions].sort((a, b) => a.id - b.id);
+  const currentIndex = sortedQuestions.findIndex(q => q.id === questionId);
+  const nextQuestionId = currentIndex >= 0 && currentIndex < sortedQuestions.length - 1 
+    ? sortedQuestions[currentIndex + 1].id 
+    : undefined;
+  const prevQuestionId = currentIndex > 0 
+    ? sortedQuestions[currentIndex - 1].id 
+    : undefined;
 
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [hintIndex, setHintIndex] = useState(0); 
@@ -36,17 +52,21 @@ const QuestionView: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const timerRef = useRef<number | null>(null);
 
-  // Load existing state if available
-  const existingAttempt = progress.solvedQuestions[questionId];
+  // Load existing state if available - use the actual question's ID
+  const actualQuestionId = question?.id ?? questionId;
+  const existingAttempt = progress.solvedQuestions[actualQuestionId];
   const isAnswered = !!existingAttempt;
   
   useEffect(() => {
-    // Reset state when changing questions
-    if (existingAttempt) {
-      setSelectedOption(existingAttempt.attemptedOption);
-      setShowExplanation(existingAttempt.correct); 
+    // Reset state when changing questions - ensure we use the correct question ID
+    const currentQuestionId = question?.id ?? questionId;
+    const attempt = progress.solvedQuestions[currentQuestionId];
+    
+    if (attempt) {
+      setSelectedOption(attempt.attemptedOption);
+      setShowExplanation(attempt.correct); 
       setGivenUp(false);
-      setHintIndex(existingAttempt.usedHint ? 2 : 0);
+      setHintIndex(attempt.usedHint ? 2 : 0);
     } else {
       setSelectedOption(null);
       setShowExplanation(false);
@@ -55,7 +75,7 @@ const QuestionView: React.FC = () => {
       setRemainingTime(INITIAL_TIMER);
       setIsRunning(false);
     }
-  }, [questionId, existingAttempt]);
+  }, [questionId, question?.id, progress.solvedQuestions]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -95,6 +115,11 @@ const QuestionView: React.FC = () => {
   const handleSubmit = () => {
     if (!isAuthenticated) {
       setAuthModalOpen(true);
+      return;
+    }
+
+    if (!question) {
+      console.error('Cannot submit: question not found');
       return;
     }
 
