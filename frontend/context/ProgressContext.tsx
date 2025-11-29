@@ -119,15 +119,48 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // If Authenticated, Sync to Backend
     if (isAuthenticated && user?.email) {
-      // Debounce or fire and forget
+      // Ensure all fields are included in sync
+      const syncData = {
+        email: user.email,
+        progress: {
+          totalSolved: progress.totalSolved ?? 0,
+          easySolved: progress.easySolved ?? 0,
+          mediumSolved: progress.mediumSolved ?? 0,
+          hardSolved: progress.hardSolved ?? 0,
+          points: progress.points ?? 0,
+          solvedQuestions: progress.solvedQuestions || {},
+          activityByDate: progress.activityByDate || {},
+          inventory: Array.isArray(progress.inventory) && progress.inventory.length > 0 
+            ? progress.inventory 
+            : ['starter_badge'],
+          maxStreak: progress.maxStreak ?? 0,
+          profileName: progress.profileName || user.name || 'User',
+          profileImage: progress.profileImage ?? null,
+          profileBio: progress.profileBio || 'Aspiring Aptitude Master',
+          socialLinks: {
+            linkedin: progress.socialLinks?.linkedin || '',
+            instagram: progress.socialLinks?.instagram || '',
+            github: progress.socialLinks?.github || ''
+          }
+        }
+      };
+      
       fetch(`${API_URL}/user/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          progress: progress
-        })
-      }).catch(err => console.error("Sync failed", err));
+        body: JSON.stringify(syncData)
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.user) {
+          // Update local user data with server response
+          const { password: _, ...userData } = data.user;
+          localStorage.setItem('auth_user', JSON.stringify(userData));
+        }
+      })
+      .catch(err => {
+        console.error("Sync failed", err);
+      });
     }
   }, [progress, isAuthenticated, user]);
 

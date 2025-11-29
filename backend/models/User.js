@@ -46,4 +46,50 @@ const UserSchema = new mongoose.Schema({
   }
 }, { minimize: false, timestamps: true });
 
+// Pre-save hook to ensure all fields are always present
+UserSchema.pre('save', function(next) {
+  // Ensure solvedQuestions is always an object
+  if (!this.solvedQuestions || typeof this.solvedQuestions !== 'object' || Array.isArray(this.solvedQuestions)) {
+    this.solvedQuestions = {};
+  }
+  
+  // Ensure activityByDate is always an object
+  if (!this.activityByDate || typeof this.activityByDate !== 'object' || Array.isArray(this.activityByDate)) {
+    this.activityByDate = {};
+  }
+  
+  // Ensure socialLinks is always an object with the right structure
+  if (!this.socialLinks || typeof this.socialLinks !== 'object' || Array.isArray(this.socialLinks)) {
+    this.socialLinks = {
+      linkedin: '',
+      instagram: '',
+      github: ''
+    };
+  } else {
+    // Ensure all social link fields exist
+    this.socialLinks.linkedin = this.socialLinks.linkedin || '';
+    this.socialLinks.instagram = this.socialLinks.instagram || '';
+    this.socialLinks.github = this.socialLinks.github || '';
+  }
+  
+  // Ensure inventory is always an array with at least one item
+  if (!Array.isArray(this.inventory) || this.inventory.length === 0) {
+    this.inventory = ['starter_badge'];
+  }
+  
+  // Ensure numeric fields have defaults
+  this.totalSolved = this.totalSolved ?? 0;
+  this.easySolved = this.easySolved ?? 0;
+  this.mediumSolved = this.mediumSolved ?? 0;
+  this.hardSolved = this.hardSolved ?? 0;
+  this.points = this.points ?? 0;
+  this.maxStreak = this.maxStreak ?? 0;
+  
+  // Ensure string fields have defaults
+  this.profileName = this.profileName || this.name || 'User';
+  this.profileBio = this.profileBio || 'Aspiring Aptitude Master';
+  
+  next();
+});
+
 module.exports = mongoose.model('User', UserSchema);

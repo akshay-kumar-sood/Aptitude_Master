@@ -24,7 +24,39 @@ mongoose.connect(process.env.MONGO_URI)
 const ensureUserDefaults = (user) => {
   if (!user) return null;
   
-  const userObj = user.toObject ? user.toObject() : user;
+  const userObj = user.toObject ? user.toObject({ getters: true, virtuals: false }) : user;
+  
+  // Convert Mixed types to plain objects if they're Maps or other types
+  let solvedQuestions = userObj.solvedQuestions;
+  if (solvedQuestions && typeof solvedQuestions === 'object' && !Array.isArray(solvedQuestions)) {
+    if (solvedQuestions instanceof Map) {
+      solvedQuestions = Object.fromEntries(solvedQuestions);
+    }
+  } else {
+    solvedQuestions = {};
+  }
+  
+  let activityByDate = userObj.activityByDate;
+  if (activityByDate && typeof activityByDate === 'object' && !Array.isArray(activityByDate)) {
+    if (activityByDate instanceof Map) {
+      activityByDate = Object.fromEntries(activityByDate);
+    }
+  } else {
+    activityByDate = {};
+  }
+  
+  let socialLinks = userObj.socialLinks;
+  if (socialLinks && typeof socialLinks === 'object' && !Array.isArray(socialLinks)) {
+    if (socialLinks instanceof Map) {
+      socialLinks = Object.fromEntries(socialLinks);
+    }
+  } else {
+    socialLinks = {
+      linkedin: '',
+      instagram: '',
+      github: ''
+    };
+  }
   
   // Ensure all fields have defaults
   return {
@@ -34,8 +66,8 @@ const ensureUserDefaults = (user) => {
     mediumSolved: userObj.mediumSolved ?? 0,
     hardSolved: userObj.hardSolved ?? 0,
     points: userObj.points ?? 0,
-    solvedQuestions: userObj.solvedQuestions ?? {},
-    activityByDate: userObj.activityByDate ?? {},
+    solvedQuestions: solvedQuestions,
+    activityByDate: activityByDate,
     inventory: Array.isArray(userObj.inventory) && userObj.inventory.length > 0 
       ? userObj.inventory 
       : ['starter_badge'],
@@ -43,17 +75,11 @@ const ensureUserDefaults = (user) => {
     profileName: userObj.profileName || userObj.name || 'User',
     profileImage: userObj.profileImage ?? null,
     profileBio: userObj.profileBio || 'Aspiring Aptitude Master',
-    socialLinks: userObj.socialLinks && typeof userObj.socialLinks === 'object'
-      ? {
-          linkedin: userObj.socialLinks.linkedin || '',
-          instagram: userObj.socialLinks.instagram || '',
-          github: userObj.socialLinks.github || ''
-        }
-      : {
-          linkedin: '',
-          instagram: '',
-          github: ''
-        }
+    socialLinks: {
+      linkedin: socialLinks.linkedin || '',
+      instagram: socialLinks.instagram || '',
+      github: socialLinks.github || ''
+    }
   };
 };
 
@@ -67,13 +93,28 @@ app.post('/api/auth/signup', async (req, res) => {
     const exist = await User.findOne({ email });
     if (exist) return res.status(400).json({ message: 'User already exists' });
 
-    // Create user with default progress values
+    // Create user with default progress values - explicitly set all fields
     const user = new User({ 
       name, 
       email, 
       password,
       profileName: name,
-      // All other fields have defaults in the schema
+      totalSolved: 0,
+      easySolved: 0,
+      mediumSolved: 0,
+      hardSolved: 0,
+      points: 0,
+      solvedQuestions: {},
+      activityByDate: {},
+      inventory: ['starter_badge'],
+      maxStreak: 0,
+      profileImage: null,
+      profileBio: 'Aspiring Aptitude Master',
+      socialLinks: {
+        linkedin: '',
+        instagram: '',
+        github: ''
+      }
     });
     await user.save();
 
@@ -104,6 +145,23 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Get User Data
+app.get('/api/user/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const userData = ensureUserDefaults(user);
+    const { password: _, ...data } = userData;
+    res.json({ success: true, user: data });
+  } catch (err) {
+    console.error('Get user error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Sync User Progress
 app.post('/api/user/sync', async (req, res) => {
   try {
@@ -118,55 +176,72 @@ app.post('/api/user/sync', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Update user with progress data (preserve existing values if not provided)
-    // Use nullish coalescing to ensure we preserve existing values
-    if (progress.totalSolved !== undefined && progress.totalSolved !== null) user.totalSolved = progress.totalSolved;
-    if (progress.easySolved !== undefined && progress.easySolved !== null) user.easySolved = progress.easySolved;
-    if (progress.mediumSolved !== undefined && progress.mediumSolved !== null) user.mediumSolved = progress.mediumSolved;
-    if (progress.hardSolved !== undefined && progress.hardSolved !== null) user.hardSolved = progress.hardSolved;
-    if (progress.points !== undefined && progress.points !== null) user.points = progress.points;
+    // Always update all fields to ensure they're saved
+    // Update numeric fields
+    user.totalSolved = progress.totalSolved !== undefined ? (progress.totalSolved ?? 0) : user.totalSolved;
+    user.easySolved = progress.easySolved !== undefined ? (progress.easySolved ?? 0) : user.easySolved;
+    user.mediumSolved = progress.mediumSolved !== undefined ? (progress.mediumSolved ?? 0) : user.mediumSolved;
+    user.hardSolved = progress.hardSolved !== undefined ? (progress.hardSolved ?? 0) : user.hardSolved;
+    user.points = progress.points !== undefined ? (progress.points ?? 0) : user.points;
+    user.maxStreak = progress.maxStreak !== undefined ? (progress.maxStreak ?? 0) : user.maxStreak;
     
-    // For objects, ensure we preserve them even if empty
-    if (progress.solvedQuestions !== undefined) {
-      user.solvedQuestions = progress.solvedQuestions || {};
-    }
-    if (progress.activityByDate !== undefined) {
-      user.activityByDate = progress.activityByDate || {};
-    }
-    
-    if (progress.inventory !== undefined) {
-      user.inventory = Array.isArray(progress.inventory) ? progress.inventory : (user.inventory || ['starter_badge']);
-    }
-    
-    if (progress.maxStreak !== undefined && progress.maxStreak !== null) user.maxStreak = progress.maxStreak;
+    // Update string fields
     if (progress.profileName !== undefined) user.profileName = progress.profileName || user.name || 'User';
-    if (progress.profileImage !== undefined) user.profileImage = progress.profileImage;
+    if (progress.profileImage !== undefined) user.profileImage = progress.profileImage ?? null;
     if (progress.profileBio !== undefined) user.profileBio = progress.profileBio || 'Aspiring Aptitude Master';
     
-    // Ensure socialLinks object exists and is properly structured
-    if (!user.socialLinks) {
-      user.socialLinks = {
-        linkedin: '',
-        instagram: '',
-        github: ''
-      };
+    // Update objects - always set them, even if empty
+    // Use set() method for Mixed types to ensure they're saved
+    if (progress.solvedQuestions !== undefined) {
+      const solvedQs = progress.solvedQuestions && typeof progress.solvedQuestions === 'object' 
+        ? progress.solvedQuestions 
+        : {};
+      user.set('solvedQuestions', solvedQs);
     }
     
+    if (progress.activityByDate !== undefined) {
+      const activity = progress.activityByDate && typeof progress.activityByDate === 'object'
+        ? progress.activityByDate
+        : {};
+      user.set('activityByDate', activity);
+    }
+    
+    // Update inventory
+    if (progress.inventory !== undefined) {
+      user.inventory = Array.isArray(progress.inventory) && progress.inventory.length > 0 
+        ? progress.inventory 
+        : ['starter_badge'];
+    }
+    
+    // Update socialLinks - always ensure it's an object
     if (progress.socialLinks !== undefined) {
-      if (progress.socialLinks.linkedin !== undefined) user.socialLinks.linkedin = progress.socialLinks.linkedin || '';
-      if (progress.socialLinks.instagram !== undefined) user.socialLinks.instagram = progress.socialLinks.instagram || '';
-      if (progress.socialLinks.github !== undefined) user.socialLinks.github = progress.socialLinks.github || '';
+      const links = progress.socialLinks && typeof progress.socialLinks === 'object'
+        ? {
+            linkedin: progress.socialLinks.linkedin || '',
+            instagram: progress.socialLinks.instagram || '',
+            github: progress.socialLinks.github || ''
+          }
+        : {
+            linkedin: '',
+            instagram: '',
+            github: ''
+          };
+      user.set('socialLinks', links);
     }
 
-    // Mark fields as modified to ensure MongoDB saves them even if they're empty objects
+    // Mark all Mixed fields as modified to ensure MongoDB saves them
     user.markModified('solvedQuestions');
     user.markModified('activityByDate');
     user.markModified('socialLinks');
 
+    // Save the user
     await user.save();
 
-    const userData = ensureUserDefaults(user);
+    // Reload from DB to get the actual saved state
+    const savedUser = await User.findOne({ email });
+    const userData = ensureUserDefaults(savedUser);
     const { password: _, ...data } = userData;
+    
     res.json({ success: true, user: data });
   } catch (err) {
     console.error('Sync error:', err);
