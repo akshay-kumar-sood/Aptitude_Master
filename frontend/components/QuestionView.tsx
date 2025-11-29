@@ -129,11 +129,17 @@ const QuestionView: React.FC = () => {
       return;
     }
 
-    // Allow submission if: not answered, or retrying an incorrect answer
-    const canSubmit = (!isAnswered || (isIncorrectlyAnswered && isRetrying)) && !givenUp;
+    if (!selectedOption) {
+      return; // No option selected, can't submit
+    }
+
+    // Allow submission if question is not correctly answered (either not answered, or incorrectly answered)
+    // OR if we're in retry mode
+    const canSubmit = (!isCorrectlyAnswered || isRetrying) && !givenUp;
     
-    if (selectedOption && canSubmit) {
+    if (canSubmit) {
       const usedHint = hintIndex > 0;
+      // Only mark as retry if we're explicitly in retry mode
       const isRetryAttempt = isIncorrectlyAnswered && isRetrying;
       submitAnswer(question, selectedOption, usedHint, isRetryAttempt);
       setIsRunning(false);
@@ -158,7 +164,7 @@ const QuestionView: React.FC = () => {
   };
 
   const handleGiveUp = () => {
-      if (!isAnswered && !givenUp) {
+      if ((!isCorrectlyAnswered || isRetrying) && !givenUp) {
           setGivenUp(true);
           setShowExplanation(true);
           setIsRunning(false); 
@@ -395,7 +401,7 @@ const QuestionView: React.FC = () => {
                              <span className="flex items-center gap-2"><Lock className="h-3 w-3" /> Login to Submit</span>
                           ) : isRetrying ? "Submit Retry" : "Submit Answer"}
                         </button>
-                    ) : (
+                    ) : isCorrectlyAnswered ? (
                         <div className="flex gap-3">
                             {!showExplanation && isCorrectlyAnswered && (
                                 <button
