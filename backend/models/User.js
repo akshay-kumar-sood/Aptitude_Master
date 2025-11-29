@@ -20,8 +20,15 @@ const UserSchema = new mongoose.Schema({
   points: { type: Number, default: 0 },
   
   // Maps are tricky in simple JSON sync, using Object type for simplicity with the sync logic
-  solvedQuestions: { type: Object, default: {} },
-  activityByDate: { type: Object, default: {} },
+  // Using mongoose.Schema.Types.Mixed to preserve empty objects and nested structures
+  solvedQuestions: { 
+    type: mongoose.Schema.Types.Mixed, 
+    default: () => ({}) 
+  },
+  activityByDate: { 
+    type: mongoose.Schema.Types.Mixed, 
+    default: () => ({}) 
+  },
   inventory: { type: [String], default: ['starter_badge'] },
   
   // Profile
@@ -30,9 +37,12 @@ const UserSchema = new mongoose.Schema({
   profileImage: { type: String, default: null },
   profileBio: { type: String, default: 'Aspiring Aptitude Master' },
   socialLinks: {
-    linkedin: { type: String, default: '' },
-    instagram: { type: String, default: '' },
-    github: { type: String, default: '' }
+    type: mongoose.Schema.Types.Mixed,
+    default: () => ({
+      linkedin: '',
+      instagram: '',
+      github: ''
+    })
   }
 }, { minimize: false, timestamps: true });
 
