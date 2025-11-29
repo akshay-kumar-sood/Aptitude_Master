@@ -52,7 +52,7 @@ const initialProgress: UserProgress = {
 interface ProgressContextType {
   progress: UserProgress;
   streak: number;
-  submitAnswer: (question: Question, selectedOption: string, usedHint: boolean, isRetry?: boolean) => void;
+  submitAnswer: (question: Question, selectedOption: string, usedHint: boolean) => void;
   resetProgress: () => void;
   buyItem: (itemId: string, cost: number) => boolean;
   updateProfile: (name: string, image: string | null, bio: string, links: { linkedin: string; instagram: string; github: string }) => void;
@@ -119,48 +119,15 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // If Authenticated, Sync to Backend
     if (isAuthenticated && user?.email) {
-      // Ensure all fields are included in sync
-      const syncData = {
-        email: user.email,
-        progress: {
-          totalSolved: progress.totalSolved ?? 0,
-          easySolved: progress.easySolved ?? 0,
-          mediumSolved: progress.mediumSolved ?? 0,
-          hardSolved: progress.hardSolved ?? 0,
-          points: progress.points ?? 0,
-          solvedQuestions: progress.solvedQuestions || {},
-          activityByDate: progress.activityByDate || {},
-          inventory: Array.isArray(progress.inventory) && progress.inventory.length > 0 
-            ? progress.inventory 
-            : ['starter_badge'],
-          maxStreak: progress.maxStreak ?? 0,
-          profileName: progress.profileName || user.name || 'User',
-          profileImage: progress.profileImage ?? null,
-          profileBio: progress.profileBio || 'Aspiring Aptitude Master',
-          socialLinks: {
-            linkedin: progress.socialLinks?.linkedin || '',
-            instagram: progress.socialLinks?.instagram || '',
-            github: progress.socialLinks?.github || ''
-          }
-        }
-      };
-      
+      // Debounce or fire and forget
       fetch(`${API_URL}/user/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(syncData)
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.user) {
-          // Update local user data with server response
-          const { password: _, ...userData } = data.user;
-          localStorage.setItem('auth_user', JSON.stringify(userData));
-        }
-      })
-      .catch(err => {
-        console.error("Sync failed", err);
-      });
+        body: JSON.stringify({
+          email: user.email,
+          progress: progress
+        })
+      }).catch(err => console.error("Sync failed", err));
     }
   }, [progress, isAuthenticated, user]);
 
@@ -215,41 +182,13 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [progress.activityByDate, progress.maxStreak]);
 
 
-  const submitAnswer = (question: Question, selectedOption: string, usedHint: boolean, isRetry: boolean = false) => {
-    const existingAttempt = progress.solvedQuestions[question.id];
-    
-    // If question is already correctly answered, don't allow re-attempt
-    if (existingAttempt && existingAttempt.correct && !isRetry) {
-      return;
-    }
+  const submitAnswer = (question: Question, selectedOption: string, usedHint: boolean) => {
+    if (progress.solvedQuestions[question.id]) return;
 
     const isCorrect = selectedOption === question.answer;
     const today = new Date().toLocaleDateString('en-CA');
 
     setProgress((prev) => {
-      const previousAttempt = prev.solvedQuestions[question.id];
-      const wasPreviouslyIncorrect = previousAttempt && !previousAttempt.correct;
-      
-      // If retrying an incorrect answer, we need to adjust the counts
-      let totalSolvedChange = 0;
-      let easySolvedChange = 0;
-      let mediumSolvedChange = 0;
-      let hardSolvedChange = 0;
-      
-      if (!previousAttempt) {
-        // First attempt
-        totalSolvedChange = 1;
-        easySolvedChange = question.level === 'easy' ? 1 : 0;
-        mediumSolvedChange = question.level === 'medium' ? 1 : 0;
-        hardSolvedChange = question.level === 'hard' ? 1 : 0;
-      } else if (wasPreviouslyIncorrect && isCorrect) {
-        // Retrying and now correct - don't increment solved counts again, but update the status
-        totalSolvedChange = 0;
-        easySolvedChange = 0;
-        mediumSolvedChange = 0;
-        hardSolvedChange = 0;
-      }
-
       const newSolvedQuestions = {
         ...prev.solvedQuestions,
         [question.id]: {
@@ -261,39 +200,23 @@ export const ProgressProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       const newActivityByDate = { ...prev.activityByDate };
-      // Only increment activity if this is a new attempt (not a retry of the same day)
-      if (!previousAttempt || previousAttempt.date !== today) {
-        newActivityByDate[today] = (newActivityByDate[today] || 0) + 1;
-      }
+      newActivityByDate[today] = (newActivityByDate[today] || 0) + 1;
 
       let pointsChange = 0;
       if (isCorrect) {
-        // If previously incorrect, we need to adjust points
-        if (wasPreviouslyIncorrect) {
-          // Remove the -1 penalty from previous incorrect attempt (add 1 back)
-          pointsChange = 1;
-          // Add points for correct answer
-          pointsChange += usedHint ? 0 : 4;
-        } else {
-          // First time correct
-          pointsChange = usedHint ? 0 : 4;
-        }
+        pointsChange = usedHint ? 0 : 4;
       } else {
-        // Only deduct points on first incorrect attempt
-        if (!previousAttempt) {
-          pointsChange = -1;
-        }
-        // If retrying and still incorrect, don't deduct again
+        pointsChange = -1;
       }
 
       const newPoints = Math.max(0, prev.points + pointsChange);
 
       return {
         ...prev,
-        totalSolved: prev.totalSolved + totalSolvedChange,
-        easySolved: prev.easySolved + easySolvedChange,
-        mediumSolved: prev.mediumSolved + mediumSolvedChange,
-        hardSolved: prev.hardSolved + hardSolvedChange,
+        totalSolved: prev.totalSolved + 1,
+        easySolved: prev.easySolved + (question.level === 'easy' ? 1 : 0),
+        mediumSolved: prev.mediumSolved + (question.level === 'medium' ? 1 : 0),
+        hardSolved: prev.hardSolved + (question.level === 'hard' ? 1 : 0),
         points: newPoints,
         solvedQuestions: newSolvedQuestions,
         activityByDate: newActivityByDate

@@ -6,249 +6,205 @@ const User = require('./models/User');
 
 const app = express();
 
-// =================== CORS ===================
-app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN,
-  credentials: true,
-}));
-app.use(express.json());
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 
-// =================== DB ===================
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("Mongo Connected"))
-  .catch(err => console.log("Mongo Error:", err.message));
-
-// =================== HELPER FUNCTIONS ===================
-
-// Ensure user object has all required fields with defaults
-const ensureUserDefaults = (user) => {
-  if (!user) return null;
-  
-  const userObj = user.toObject ? user.toObject({ getters: true, virtuals: false }) : user;
-  
-  // Convert Mixed types to plain objects if they're Maps or other types
-  let solvedQuestions = userObj.solvedQuestions;
-  if (solvedQuestions && typeof solvedQuestions === 'object' && !Array.isArray(solvedQuestions)) {
-    if (solvedQuestions instanceof Map) {
-      solvedQuestions = Object.fromEntries(solvedQuestions);
-    }
-  } else {
-    solvedQuestions = {};
+// Error handling middleware for JSON parsing errors (must be after routes)
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    console.error('JSON Parse Error:', err.message);
+    return res.status(400).json({ message: 'Invalid JSON in request body' });
   }
-  
-  let activityByDate = userObj.activityByDate;
-  if (activityByDate && typeof activityByDate === 'object' && !Array.isArray(activityByDate)) {
-    if (activityByDate instanceof Map) {
-      activityByDate = Object.fromEntries(activityByDate);
-    }
-  } else {
-    activityByDate = {};
-  }
-  
-  let socialLinks = userObj.socialLinks;
-  if (socialLinks && typeof socialLinks === 'object' && !Array.isArray(socialLinks)) {
-    if (socialLinks instanceof Map) {
-      socialLinks = Object.fromEntries(socialLinks);
-    }
-  } else {
-    socialLinks = {
-      linkedin: '',
-      instagram: '',
-      github: ''
-    };
-  }
-  
-  // Ensure all fields have defaults
-  return {
-    ...userObj,
-    totalSolved: userObj.totalSolved ?? 0,
-    easySolved: userObj.easySolved ?? 0,
-    mediumSolved: userObj.mediumSolved ?? 0,
-    hardSolved: userObj.hardSolved ?? 0,
-    points: userObj.points ?? 0,
-    solvedQuestions: solvedQuestions,
-    activityByDate: activityByDate,
-    inventory: Array.isArray(userObj.inventory) && userObj.inventory.length > 0 
-      ? userObj.inventory 
-      : ['starter_badge'],
-    maxStreak: userObj.maxStreak ?? 0,
-    profileName: userObj.profileName || userObj.name || 'User',
-    profileImage: userObj.profileImage ?? null,
-    profileBio: userObj.profileBio || 'Aspiring Aptitude Master',
-    socialLinks: {
-      linkedin: socialLinks.linkedin || '',
-      instagram: socialLinks.instagram || '',
-      github: socialLinks.github || ''
-    }
-  };
-};
+  next(err);
+});
 
-// =================== ROUTES ===================
+// ==================================================================
+// 1. PASTE YOUR MONGODB ATLAS CONNECTION STRING BELOW
+// ==================================================================
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://kumarakshaysood_db_user:kkijKhx5AXTReBk5@cluster0.hsk6dhw.mongodb.net/?appName=Cluster0';
 
-// Signup
+// Connect to Database (non-blocking - server will still start)
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    console.error('⚠️  Server will still run, but authentication features may not work.');
+    console.error('💡 Fix: Whitelist your IP in MongoDB Atlas → Network Access');
+  });
+
+// Handle connection events
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️  MongoDB disconnected');
+});
+
+
+// --- Auth Routes ---
+
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    
+    // Check existing
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ message: 'User already exists' });
 
-    const exist = await User.findOne({ email });
-    if (exist) return res.status(400).json({ message: 'User already exists' });
-
-    // Create user with default progress values - explicitly set all fields
-    const user = new User({ 
-      name, 
-      email, 
-      password,
-      profileName: name,
-      totalSolved: 0,
-      easySolved: 0,
-      mediumSolved: 0,
-      hardSolved: 0,
-      points: 0,
-      solvedQuestions: {},
-      activityByDate: {},
-      inventory: ['starter_badge'],
-      maxStreak: 0,
-      profileImage: null,
-      profileBio: 'Aspiring Aptitude Master',
-      socialLinks: {
-        linkedin: '',
-        instagram: '',
-        github: ''
-      }
+    // Create new user with all default fields explicitly initialized
+    const newUser = new User({ 
+        name, 
+        email, 
+        password, // In real app: await bcrypt.hash(password, 10)
+        profileName: name,
+        // Explicitly initialize all default fields to ensure they're saved
+        totalSolved: 0,
+        easySolved: 0,
+        mediumSolved: 0,
+        hardSolved: 0,
+        points: 0,
+        solvedQuestions: {},
+        activityByDate: {},
+        inventory: ['starter_badge'],
+        maxStreak: 0,
+        profileImage: null,
+        profileBio: 'Aspiring Aptitude Master',
+        socialLinks: {
+          linkedin: '',
+          instagram: '',
+          github: ''
+        }
     });
-    await user.save();
-
-    const userData = ensureUserDefaults(user);
-    const { password: _, ...data } = userData;
-    res.json({ user: data, token: 'mock-token' });
+    
+    await newUser.save();
+    
+    // Return user without password
+    const { password: _, ...userData } = newUser.toObject();
+    res.json({ user: userData, token: 'demo-token-' + newUser._id });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Login
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
+    
+    // Find user
+    let user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'User not found' });
+    
+    // Check password (In real app: await bcrypt.compare(password, user.password))
+    if (user.password !== password) return res.status(400).json({ message: 'Invalid credentials' });
 
-    if (user.password !== password)
-      return res.status(400).json({ message: 'Invalid credentials' });
-
-    const userData = ensureUserDefaults(user);
-    const { password: _, ...data } = userData;
-    res.json({ user: data, token: 'mock-token' });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Get User Data
-app.get('/api/user/:email', async (req, res) => {
-  try {
-    const { email } = req.params;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Check if user is missing required fields and fix them
+    const needsFix = !user.solvedQuestions || !user.activityByDate || !user.socialLinks || 
+                     !user.inventory || user.inventory.length === 0;
+    
+    if (needsFix) {
+      const defaults = {
+        totalSolved: user.totalSolved ?? 0,
+        easySolved: user.easySolved ?? 0,
+        mediumSolved: user.mediumSolved ?? 0,
+        hardSolved: user.hardSolved ?? 0,
+        points: user.points ?? 0,
+        solvedQuestions: user.solvedQuestions || {},
+        activityByDate: user.activityByDate || {},
+        inventory: user.inventory && user.inventory.length > 0 ? user.inventory : ['starter_badge'],
+        maxStreak: user.maxStreak ?? 0,
+        profileName: user.profileName || user.name || 'User',
+        profileImage: user.profileImage ?? null,
+        profileBio: user.profileBio || 'Aspiring Aptitude Master',
+        socialLinks: {
+          linkedin: user.socialLinks?.linkedin || '',
+          instagram: user.socialLinks?.instagram || '',
+          github: user.socialLinks?.github || ''
+        }
+      };
+      
+      user = await User.findOneAndUpdate(
+        { email },
+        { $set: defaults },
+        { new: true }
+      );
     }
-    const userData = ensureUserDefaults(user);
-    const { password: _, ...data } = userData;
-    res.json({ success: true, user: data });
+
+    const { password: _, ...userData } = user.toObject();
+    res.json({ user: userData, token: 'demo-token-' + user._id });
   } catch (err) {
-    console.error('Get user error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// Sync User Progress
+// --- Data Routes ---
+
+// Utility endpoint to fix existing users missing default fields
+app.post('/api/user/fix-missing-fields', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) return res.status(400).json({ message: 'Email required' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Prepare defaults for missing fields
+    const defaults = {
+      totalSolved: user.totalSolved ?? 0,
+      easySolved: user.easySolved ?? 0,
+      mediumSolved: user.mediumSolved ?? 0,
+      hardSolved: user.hardSolved ?? 0,
+      points: user.points ?? 0,
+      solvedQuestions: user.solvedQuestions || {},
+      activityByDate: user.activityByDate || {},
+      inventory: user.inventory && user.inventory.length > 0 ? user.inventory : ['starter_badge'],
+      maxStreak: user.maxStreak ?? 0,
+      profileName: user.profileName || user.name || 'User',
+      profileImage: user.profileImage ?? null,
+      profileBio: user.profileBio || 'Aspiring Aptitude Master',
+      socialLinks: {
+        linkedin: user.socialLinks?.linkedin || '',
+        instagram: user.socialLinks?.instagram || '',
+        github: user.socialLinks?.github || ''
+      }
+    };
+
+    // Use $setOnInsert for fields that don't exist, or $set to ensure they're all present
+    const updatedUser = await User.findOneAndUpdate(
+      { email },
+      { $set: defaults },
+      { new: true }
+    );
+
+    res.json({ 
+      message: 'User fields fixed successfully',
+      user: updatedUser.toObject()
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Sync: Frontend sends the full progress object, Backend updates it
 app.post('/api/user/sync', async (req, res) => {
   try {
     const { email, progress } = req.body;
-
-    if (!email || !progress) {
-      return res.status(400).json({ message: 'Email and progress are required' });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Always update all fields to ensure they're saved
-    // Update numeric fields
-    user.totalSolved = progress.totalSolved !== undefined ? (progress.totalSolved ?? 0) : user.totalSolved;
-    user.easySolved = progress.easySolved !== undefined ? (progress.easySolved ?? 0) : user.easySolved;
-    user.mediumSolved = progress.mediumSolved !== undefined ? (progress.mediumSolved ?? 0) : user.mediumSolved;
-    user.hardSolved = progress.hardSolved !== undefined ? (progress.hardSolved ?? 0) : user.hardSolved;
-    user.points = progress.points !== undefined ? (progress.points ?? 0) : user.points;
-    user.maxStreak = progress.maxStreak !== undefined ? (progress.maxStreak ?? 0) : user.maxStreak;
     
-    // Update string fields
-    if (progress.profileName !== undefined) user.profileName = progress.profileName || user.name || 'User';
-    if (progress.profileImage !== undefined) user.profileImage = progress.profileImage ?? null;
-    if (progress.profileBio !== undefined) user.profileBio = progress.profileBio || 'Aspiring Aptitude Master';
-    
-    // Update objects - always set them, even if empty
-    // Use set() method for Mixed types to ensure they're saved
-    if (progress.solvedQuestions !== undefined) {
-      const solvedQs = progress.solvedQuestions && typeof progress.solvedQuestions === 'object' 
-        ? progress.solvedQuestions 
-        : {};
-      user.set('solvedQuestions', solvedQs);
-    }
-    
-    if (progress.activityByDate !== undefined) {
-      const activity = progress.activityByDate && typeof progress.activityByDate === 'object'
-        ? progress.activityByDate
-        : {};
-      user.set('activityByDate', activity);
-    }
-    
-    // Update inventory
-    if (progress.inventory !== undefined) {
-      user.inventory = Array.isArray(progress.inventory) && progress.inventory.length > 0 
-        ? progress.inventory 
-        : ['starter_badge'];
-    }
-    
-    // Update socialLinks - always ensure it's an object
-    if (progress.socialLinks !== undefined) {
-      const links = progress.socialLinks && typeof progress.socialLinks === 'object'
-        ? {
-            linkedin: progress.socialLinks.linkedin || '',
-            instagram: progress.socialLinks.instagram || '',
-            github: progress.socialLinks.github || ''
-          }
-        : {
-            linkedin: '',
-            instagram: '',
-            github: ''
-          };
-      user.set('socialLinks', links);
-    }
+    if (!email) return res.status(400).json({ message: 'Email required' });
 
-    // Mark all Mixed fields as modified to ensure MongoDB saves them
-    user.markModified('solvedQuestions');
-    user.markModified('activityByDate');
-    user.markModified('socialLinks');
+    // We exclude _id and email from the update payload to prevent accidental overwrites
+    const { _id, email: _e, ...updateData } = progress;
 
-    // Save the user
-    await user.save();
+    const updatedUser = await User.findOneAndUpdate(
+      { email }, 
+      { $set: updateData }, 
+      { new: true } // Return updated doc
+    );
 
-    // Reload from DB to get the actual saved state
-    const savedUser = await User.findOne({ email });
-    const userData = ensureUserDefaults(savedUser);
-    const { password: _, ...data } = userData;
-    
-    res.json({ success: true, user: data });
+    res.json(updatedUser);
   } catch (err) {
-    console.error('Sync error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// =================== SERVER ===================
+// Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log('Backend running'));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

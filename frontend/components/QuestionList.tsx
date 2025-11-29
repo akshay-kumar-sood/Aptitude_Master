@@ -189,53 +189,44 @@ const QuestionList: React.FC = () => {
                     </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                    {paginatedQuestions.map((q, index) => {
-                      // Ensure we're using the correct question ID
-                      const questionId = q.id;
-                      const questionInList = questions.find(quest => quest.id === questionId);
-                      
-                      // Use the question from the original array to ensure consistency
-                      const displayQuestion = questionInList || q;
-                      
-                      return (
-                        <tr key={`${questionId}-${index}`} className="hover:bg-blue-50/30 transition-colors group">
-                            <td className="px-6 py-4 text-center">{getStatusIcon(questionId)}</td>
+                    {paginatedQuestions.map((q) => (
+                        <tr key={q.id} className="hover:bg-blue-50/30 transition-colors group">
+                            <td className="px-6 py-4 text-center">{getStatusIcon(q.id)}</td>
                             <td className="px-6 py-4">
                                 <span className="inline-flex items-center px-2 py-1 rounded-md text-xs bg-gray-100 font-mono border group-hover:bg-white group-hover:border-blue-200">
-                                    {displayQuestion.code}
+                                    {q.code}
                                 </span>
                             </td>
                             <td className="px-6 py-4">
                                 <Link
-                                  to={`/question/${questionId}`}
+                                  to={`/question/${q.id}`}
                                   className="text-sm font-medium text-gray-900 group-hover:text-blue-600"
                                 >
-                                  {displayQuestion.question.substring(0, 80)}{displayQuestion.question.length > 80 ? '...' : ''}
+                                  {q.question.substring(0, 80)}{q.question.length > 80 ? '...' : ''}
                                 </Link>
                             </td>
                             <td className="px-6 py-4">
-                                <span className={`px-2.5 py-0.5 text-xs rounded-full border ${getDifficultyColor(displayQuestion.level)}`}>
-                                    {displayQuestion.level}
+                                <span className={`px-2.5 py-0.5 text-xs rounded-full border ${getDifficultyColor(q.level)}`}>
+                                    {q.level}
                                 </span>
                             </td>
                             <td className="px-6 py-4 text-sm hidden sm:table-cell">
                               <span className="inline-flex items-center px-2 py-1 bg-gray-50 border rounded-full">
                                     <Tag className="h-3 w-3 mr-1.5 text-gray-400" />
-                                    {displayQuestion.topic}
+                                    {q.topic}
                                 </span>
                             </td>
                             <td className="px-6 py-4">
-                                {displayQuestion.exam ? (
+                                {q.exam ? (
                                     <span className="inline-flex px-2.5 py-1 rounded-full text-xs bg-purple-50 text-purple-700 border">
-                                        {displayQuestion.exam}
+                                        {q.exam}
                                     </span>
                                 ) : (
                                     <span className="text-xs text-gray-400">-</span>
                                 )}
                             </td>
                         </tr>
-                      );
-                    })}
+                    ))}
 
                     {filteredQuestions.length === 0 && (
                         <tr>
