@@ -45,6 +45,18 @@ const Heatmap: React.FC = () => {
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  // Calculate which weeks should show month labels (first week of each month)
+  const monthLabelWeeks = new Set<number>();
+  let lastMonth = -1;
+  weeks.forEach((week, i) => {
+    const weekMonth = week[0].getMonth();
+    // Show label if this is the first week we encounter this month
+    if (weekMonth !== lastMonth) {
+      monthLabelWeeks.add(i);
+      lastMonth = weekMonth;
+    }
+  });
+
   return (
     <div className="w-full overflow-x-auto pb-2 custom-scrollbar">
       <div className="min-w-[700px]">
@@ -52,9 +64,8 @@ const Heatmap: React.FC = () => {
         <div className="flex mb-2 text-xs text-gray-400 pl-8">
             {weeks.map((week, i) => {
                 const firstDay = week[0];
-                // Show month label only if it's the first week of the month
-                if (i === 0 || week[0].getDate() <= 7) {
-                    if (i > 0 && weeks[i-1][0].getMonth() === week[0].getMonth()) return <div key={i} className="w-3 mx-[1px]" />;
+                // Show month label only for the first week of each month
+                if (monthLabelWeeks.has(i)) {
                     return <div key={i} className="w-3 mx-[1px] overflow-visible whitespace-nowrap">{monthNames[firstDay.getMonth()]}</div>
                 }
                 return <div key={i} className="w-3 mx-[1px]" />;
